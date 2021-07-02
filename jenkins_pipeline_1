@@ -1,0 +1,81 @@
+#!/usr/bin/env groovy
+
+def useremail
+
+stage ('Email Address Input') {
+    node('jenkinsnode.com') {
+        useremail = input(
+            id: 'useremailID', message: 'Input your email address: ', ok: 'Ok', parameters: [string(defaultValue: 'user@fake.com', description: 'Enter the email address for the engineer performing the cleanup tasks.', name: 'Email')])
+        emailext body: """
+        Click ${RUN_DISPLAY_URL} to access the Jenkins NAT cleanup tool.
+
+        You will be instructed to input the Management IP address of the Firewall you're performing cleanup on.
+
+        - Security Automation Team
+
+        """, subject: 'Link to NAT Cleanup Tool', to: useremail
+    }
+}
+
+stage ('Firewall IP Input') {
+    node('jenkinsnode.com') {
+        firewallip = input(
+            id: 'firewallIP', message: 'Input Firewall IP Address: ', ok: 'Ok', parameters: [string(defaultValue: 'x.x.x.x', description: 'Enter the Firewall IP address in IPv4 Format', name: 'Firewall')])
+        emailext body: """
+
+        Job Link: ${RUN_DISPLAY_URL}
+
+        """, subject: 'FW IP Entered for ${JOB_NAME}-${BUILD_NUMBER}', to: 'fakeemail.com'
+    }
+}
+
+stage ('Retrieve NAT Info') {
+    node('jenkinsnode.com') {
+        git branch: 'master', credentialsId: 'ID For Jenkins node.', url: 'git or azuredevops URL'
+        withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'jenkinsID',usernameVariable: 'Saved_Username', passwordVariable: 'Saved_Password']]){
+            sh('python3.7 -u python_script.py ${svc_uname} ${svc_passwd} ' + firewallip)
+        }
+    }
+}
+
+stage ('Email output to User') {
+    node('jenkinsnode.com') {
+        emailext attachmentsPattern: 'AttachedFile.file', body: """Output Attached Info. """: $firewallip.
+
+        Job Link:  ${RUN_DISPLAY_URL} for the Jenkins NAT Job""", subject: """Zero hit NAT Output for $firewallip""", to: useremail
+    }
+}
+
+stage ('Deploy NAT removal to Production'){
+    input message: 'Deploy NAT removal to Production?', ok: 'Remove Disabled NATs?', submitter: 'username'
+}
+
+stage ('Deploying to Production'){
+    node('jenkinsnode.com') {
+        git branch: 'master', credentialsId: 'GitCreds', url: 'GITURL'
+        withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'svcjenkins',usernameVariable: 'svc_uname', passwordVariable: 'svc_passwd']]){
+            sh('python3.7 -u Python_Script.py ${svc_uname} ${svc_passwd} ' + firewallip)
+        }
+    }
+}
+
+stage ('Completion Email'){
+    node('jenkinsnode.com') {
+        emailext attachmentsPattern: 'DeletedNATs.json', body: """
+        ${JOB_NAME}-${BUILD_NUMBER} has completed the NAT cleanup for $firewallip.
+
+        Job Link: ${RUN_DISPLAY_URL}
+
+        """, subject: 'Completed NAT cleanup for ${JOB_NAME}-${BUILD_NUMBER}', to: 'user@company.com'
+        emailext attachmentsPattern: 'DeletedNATs.json', body: """
+        ${JOB_NAME}-${BUILD_NUMBER} has completed the NAT cleanup for $firewallip.
+
+        Attached is the deleted NATs.
+
+        *** Please review the rules that were removed and update EasyIP with the IP's not in use anymore. ***
+
+        Job Link: ${RUN_DISPLAY_URL}
+
+        """, subject: 'Completed NAT cleanup for ${JOB_NAME}-${BUILD_NUMBER}', to: useremail
+    }
+}
